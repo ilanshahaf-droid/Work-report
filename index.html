@@ -178,7 +178,7 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
   <div class="status" id="clockStatus"></div>
   <details><summary>איך יוצרים את הקובץ ב-Claude מהצילום</summary>
     <p>שולחים ל-Claude את צילום דוח השעון עם ההנחיה הזאת, ומורידים את קובץ האקסל שהוא יוצר:</p>
-    <p id="clockPrompt" class="prompt">צור קובץ Excel מצילום דוח הנוכחות המצורף, עם ארבע עמודות בדיוק: תאריך (DD/MM/YYYY), כניסה (HH:MM), יציאה (HH:MM), סטטוס (הטקסט שבעמודת פעילות/חריגה, למשל "יום לא נסגר" או "מנוחה בתשלום"). שורה אחת לכל תאריך שמופיע בדוח. כשאין החתמה, השאר את התא ריק. שים לב: בגלל זווית הצילום השעות עשויות להיראות מוזזות בחצי שורה מהתאריך, אז ודא שכל כניסה ויציאה משויכות לתאריך הנכון.</p>
+    <p id="clockPrompt" class="prompt">צור קובץ Excel מצילום דוח הנוכחות המצורף, עם ארבע עמודות בדיוק: תאריך (DD/MM/YYYY), כניסה (HH:MM), יציאה (HH:MM), סטטוס (הטקסט שבעמודת פעילות/חריגה, למשל "יום לא נסגר", "העדרות ללא דיווח" או "מנוחה בתשלום"). שורה אחת לכל תאריך שמופיע בדוח. כשאין החתמה, השאר את התא ריק. שים לב: בגלל זווית הצילום השעות עשויות להיראות מוזזות בחצי שורה מהתאריך, אז ודא שכל כניסה ויציאה משויכות לתאריך הנכון.</p>
     <button id="copyPrompt">העתק את ההנחיה</button>
   </details>
   <div class="bar"><button id="calPrev" aria-label="חודש קודם">›</button><h3 id="calTitle"></h3><button id="calNext" aria-label="חודש הבא">‹</button></div>
@@ -187,10 +187,10 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
 </section>
 <section class="step" id="s4"><span class="punch">4</span>
   <h2>הימים להשלמה</h2>
-  <p class="hint">ההחתמה שנקלטה נשארת כמו בשעון, והשעה החסרה נלקחת מקובץ השעות ומסומנת בצהוב. בהערות מופיעות ה-Work unit notes מהאקסל. אפשר לתקן כל שדה.</p>
+  <p class="hint">ההחתמה שנקלטה נשארת כמו בשעון, והשעה החסרה נלקחת מקובץ השעות ומסומנת בצהוב. בהערות מופיעות ה-Work unit notes מהאקסל. יום שבאקסל רשום בלי משך (למשל 08:00 עד 08:00 עם "מחלת ילד") מסומן אוטומטית כיום מחלה או חופשה, בלי שעות. אפשר גם לבחור את זה ידנית ביום שאין בו שום החתמה. אפשר לתקן כל שדה.</p>
   <div class="row2"><div><label class="f" for="month">חודש בכותרת</label><input type="text" id="month" placeholder="למשל ספטמבר 2026"></div><div></div></div>
   <div class="tablewrap"><table>
-    <thead><tr><th>תאריך</th><th>מה חסר</th><th>כניסה</th><th>יציאה</th><th>הערות</th><th></th></tr></thead>
+    <thead><tr><th>תאריך</th><th>מה חסר / סוג יום</th><th>כניסה</th><th>יציאה</th><th>הערות</th><th></th></tr></thead>
     <tbody id="rows"></tbody>
   </table></div>
   <div class="empty" id="noRows">עדיין אין ימים. העלה את קובץ דוח השעון או סמן ימים בלוח בשלב 3.</div>
@@ -344,6 +344,7 @@ function parseHours(buf){
       notes.forEach(n=>{ if(!p.notes.includes(n)) p.notes.push(n); });
     }
   }
+  for(const p of Object.values(map)){ p.zero = !!p.in && p.in===p.out; if(p.zero){ p.in=""; p.out=""; } }
   return map;
 }
 const unitOf = iso => ((S.excel[iso]||{}).notes||[]).join("; ");
@@ -363,11 +364,24 @@ function parseClock(buf){
   }
   return out;
 }
+// statuses that already account for the day (holiday, paid rest, internal training...) - nothing to report
+const COVERED=/מנוחה|חג|חוה"?מ|ח\.\s*פנימית|פנימית|השתלמות|מילואים|שבתון|ערב\s*חג|מוכרז/;
+// statuses meaning "you should have worked but there is no punch"
+const ABSENT=/העדרות|היעדרות|ללא\s*דיווח|חסר\s*כל|לא\s*דווח/;
 function clockMissing(c){
   if(!!c.in!==!!c.out) return !c.in?"in":"out";
-  if(/לא\s*נסגר|חסר/.test(c.status)) return !c.in&&!c.out?"both":!c.in?"in":!c.out?"out":null;
+  if(c.in&&c.out) return null;
+  // no punch at all
+  if(ABSENT.test(c.status)||/לא\s*נסגר|חסר/.test(c.status)) return "both";
+  if(!c.status.trim()) return "both";      // a listed work day with no punch and no explanation
+  if(COVERED.test(c.status)) return null;
   return null;
 }
+const isOff = m => m==="sick"||m==="vac"||m==="off";
+// which kind of day-off an hours entry with no duration is, judging by its note
+function offKind(iso){ const x=S.excel[iso]; if(!x||!x.zero) return null; const n=(x.notes||[]).join(" ");
+  return /חופש/.test(n)?"vac": /מחל/.test(n)?"sick":"off"; }
+const rowDone = r => isOff(r.miss) || (r.in && r.out);
 
 function loadHoursBytes(bytes){
   S.excel=parseHours(bytes);
@@ -401,16 +415,19 @@ $("#copyPrompt").onclick=async()=>{ try{ await navigator.clipboard.writeText($("
 
 /* ---------- step 3: calendar ---------- */
 const MISS={in:"חסרה החתמת כניסה",out:"חסרה החתמת יציאה",both:"חסרה החתמת כניסה ויציאה"};
-const autoNote = r => r.unit || "";
+const OFF_NOTE={sick:"יום מחלה",vac:"יום חופשה",off:""};
+const autoNote = r => r.unit || (isOff(r.miss) ? OFF_NOTE[r.miss] : "");
 const noteOf = r => r.noteEdited ? r.note : autoNote(r);
 let calY, calM; // month 1-12
 (function initCal(){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); calY=d.getFullYear(); calM=d.getMonth()+1; })();
 function newRow(iso,miss,c){ // c = clock row or null
   const x=S.excel[iso]||{}; const cin=c?c.in:"", cout=c?c.out:"";
+  if(!cin&&!cout&&!isOff(miss)&&offKind(iso)) miss=offKind(iso);
+  if(isOff(miss)) return {date:iso, miss, cin:"", cout:"", in:"", out:"", inX:false, outX:false, unit:unitOf(iso), note:"", noteEdited:false, absent:!!(c&&!c.in&&!c.out)};
   const keepIn = miss==="out" && cin, keepOut = miss==="in" && cout;   // the punch that DID register
   return {date:iso, miss, cin:keepIn?cin:"", cout:keepOut?cout:"",
     in: keepIn?cin:(x.in||""), out: keepOut?cout:(x.out||""),
-    inX: !keepIn && !!x.in, outX: !keepOut && !!x.out, unit:unitOf(iso), note:"", noteEdited:false};
+    inX: !keepIn && !!x.in, outX: !keepOut && !!x.out, unit:unitOf(iso), note:"", noteEdited:false, absent:!!(c&&!c.in&&!c.out)};
 }
 function buildFromClock(){
   S.rows=S.clock.map(c=>{ const m=clockMissing(c); return m?newRow(c.date,m,c):null; }).filter(Boolean)
@@ -444,6 +461,8 @@ function jumpToMonth(isos){ if(!isos.length) return;
   const counts={}; isos.forEach(k=>counts[k.slice(0,7)]=(counts[k.slice(0,7)]||0)+1);
   const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0]; calY=+best.slice(0,4); calM=+best.slice(5,7); }
 function refreshFromExcel(){ S.rows.forEach(r=>{ const x=S.excel[r.date]||{};
+  if(!r.cin&&!r.cout&&!isOff(r.miss)&&offKind(r.date)){ r.miss=offKind(r.date); r.in=r.out=""; r.inX=r.outX=false; r.unit=unitOf(r.date); return; }
+  if(isOff(r.miss)){ r.unit=unitOf(r.date); return; }
   if(!r.cin){ r.in = x.in||(r.inX?"":r.in); r.inX=!!x.in; }
   if(!r.cout){ r.out = x.out||(r.outX?"":r.out); r.outX=!!x.out; }
   r.unit=unitOf(r.date); }); }
@@ -471,13 +490,16 @@ function renderRows(){
   S.rows.forEach((r,i)=>{
     r.note=noteOf(r);
     const tr=document.createElement("tr");
-    const lacking=!r.in||!r.out;
+    const lacking=!rowDone(r);
+    const chip = isOff(r.miss) ? '<span class="chip ok">ללא שעות</span>'
+      : lacking ? (r.absent&&!r.in&&!r.out ? '<span class="chip">אין החתמה ואין שעות באקסל: הזן שעות או בחר מחלה/חופשה</span>' : '<span class="chip">חסרה שעה</span>')
+      : '<span class="chip ok">מלא</span>';
     const src=(c,x,v)=>c?"שעון":x?"אקסל":v?"ידני":"";
     tr.innerHTML=`<td><b>${fmtDate(r.date)}</b> <span class="src">יום ${dayName(r.date)}</span></td>
-      <td><select aria-label="מה חסר"><option value="in">כניסה</option><option value="out">יציאה</option><option value="both">שתיהן</option></select></td>
-      <td><input type="time" data-k="in" value="${r.in}" class="${r.inX?"fromx":""}" aria-label="כניסה"><span class="src">${src(r.cin,r.inX,r.in)}</span></td>
-      <td><input type="time" data-k="out" value="${r.out}" class="${r.outX?"fromx":""}" aria-label="יציאה"><span class="src">${src(r.cout,r.outX,r.out)}</span></td>
-      <td><input type="text" class="note" data-k="note" value="${esc(r.note)}" aria-label="הערות">${lacking?'<span class="chip">חסרה שעה</span>':'<span class="chip ok">מלא</span>'}</td>
+      <td><select aria-label="מה חסר"><option value="in">כניסה</option><option value="out">יציאה</option><option value="both">שתיהן</option><option value="sick">יום מחלה</option><option value="vac">יום חופשה</option><option value="off">יום ללא שעות</option></select></td>
+      <td><input type="time" data-k="in" ${isOff(r.miss)?"disabled":""} value="${r.in}" class="${r.inX?"fromx":""}" aria-label="כניסה"><span class="src">${src(r.cin,r.inX,r.in)}</span></td>
+      <td><input type="time" data-k="out" ${isOff(r.miss)?"disabled":""} value="${r.out}" class="${r.outX?"fromx":""}" aria-label="יציאה"><span class="src">${src(r.cout,r.outX,r.out)}</span></td>
+      <td><input type="text" class="note" data-k="note" value="${esc(r.note)}" aria-label="הערות">${chip}</td>
       <td><button class="x" aria-label="הסר יום">✕</button></td>`;
     const sel=tr.querySelector("select"); sel.value=r.miss;
     sel.onchange=()=>{ const c=S.clock.find(x=>x.date===r.date)||null; const fresh=newRow(r.date,sel.value,c);
@@ -495,7 +517,7 @@ function markDone(){
   $("#s1").classList.toggle("done", !!($("#name").value&&store.get("att_sig")));
   $("#s3").classList.toggle("done", Object.keys(S.excel).length>0);
   $("#s2").classList.toggle("done", S.rows.length>0);
-  $("#s4").classList.toggle("done", S.rows.length>0 && S.rows.every(r=>r.in&&r.out));
+  $("#s4").classList.toggle("done", S.rows.length>0 && S.rows.every(rowDone));
 }
 $("#name").addEventListener("input",markDone);
 
@@ -655,7 +677,7 @@ $("#make").onclick=async()=>{
     const a=$("#dl"); if(a.href) URL.revokeObjectURL(a.href); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
     lastFile=new File([blob],fname,{type:blob.type});
     $("#share").hidden=!(navigator.canShare&&navigator.canShare({files:[lastFile]}));
-    const missing=S.rows.filter(r=>!r.in||!r.out).length;
+    const missing=S.rows.filter(r=>!rowDone(r)).length;
     let msg=`הקובץ מוכן: ${filled} ימים מולאו.`;
     if(cloud.user){ const ok=await cloudSaveReport(blob,ym); msg+= ok?" נשמר גם בענן.":" השמירה בענן נכשלה."; } if(missing) msg+=` שים לב: ב-${missing} ימים עדיין חסרה שעה.`;
     if(!data.sig) msg+=" לא נוספה חתימה כי אין חתימה שמורה."; if(warn.includes("sig")) msg+=" לא מצאתי בתבנית שורת חתימה.";
