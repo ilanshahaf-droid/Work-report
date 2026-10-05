@@ -153,7 +153,7 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
 </section>
 <section class="step" id="s4"><span class="punch">4</span>
   <h2>הימים להשלמה</h2>
-  <p class="hint">ההחתמה שנקלטה נשארת כמו בשעון, והשעה החסרה נלקחת מקובץ השעות ומסומנת בצהוב. בהערות מופיע מה חסר ואחריו ה-Work unit notes מהאקסל. אפשר לתקן כל שדה.</p>
+  <p class="hint">ההחתמה שנקלטה נשארת כמו בשעון, והשעה החסרה נלקחת מקובץ השעות ומסומנת בצהוב. בהערות מופיעות ה-Work unit notes מהאקסל. אפשר לתקן כל שדה.</p>
   <div class="row2"><div><label class="f" for="month">חודש בכותרת</label><input type="text" id="month" placeholder="למשל ספטמבר 2026"></div><div></div></div>
   <div class="tablewrap"><table>
     <thead><tr><th>תאריך</th><th>מה חסר</th><th>כניסה</th><th>יציאה</th><th>הערות</th><th></th></tr></thead>
@@ -353,7 +353,7 @@ $("#copyPrompt").onclick=async()=>{ try{ await navigator.clipboard.writeText($("
 
 /* ---------- step 3: calendar ---------- */
 const MISS={in:"חסרה החתמת כניסה",out:"חסרה החתמת יציאה",both:"חסרה החתמת כניסה ויציאה"};
-const autoNote = r => MISS[r.miss] + (r.unit ? " – " + r.unit : "");
+const autoNote = r => r.unit || "";
 const noteOf = r => r.noteEdited ? r.note : autoNote(r);
 let calY, calM; // month 1-12
 (function initCal(){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); calY=d.getFullYear(); calM=d.getMonth()+1; })();
@@ -466,7 +466,32 @@ const textOf=n=>elsW(n,"t").map(t=>t.textContent).join("");
 function directChildren(n,tag){ return Array.from(n.childNodes).filter(c=>c.nodeType===1&&c.namespaceURI===W&&c.localName===tag); }
 function mk(doc,tag){ return doc.createElementNS(W,"w:"+tag); }
 function setT(t,txt){ t.textContent=txt; t.setAttributeNS("http://www.w3.org/XML/1998/namespace","xml:space","preserve"); }
-function fillBlank(doc,p,value){
+const RPR_AFTER_U=["effect","bdr","shd","fitText","vertAlign","rtl","cs","em","lang","eastAsianLayout","specVanish","oMath"];
+function ensureRPr(doc,r){ let rp=directChildren(r,"rPr")[0]; if(!rp){ rp=mk(doc,"rPr"); r.insertBefore(rp,r.firstChild); } return rp; }
+function insertOrdered(rp,el,afterNames){ // insert el before the first child whose name is in afterNames
+  const ref=Array.from(rp.childNodes).find(c=>c.nodeType===1&&afterNames.includes(c.localName)); rp.insertBefore(el,ref||null); }
+function setUnderline(doc,r){ const rp=ensureRPr(doc,r); if(directChildren(rp,"u").length) return; const u=mk(doc,"u"); u.setAttributeNS(W,"w:val","single"); insertOrdered(rp,u,RPR_AFTER_U); }
+function setBold(doc,r){ const rp=ensureRPr(doc,r);
+  if(!directChildren(rp,"b").length) insertOrdered(rp,mk(doc,"b"),["bCs","i","iCs","caps","smallCaps","strike","dstrike","outline","shadow","emboss","imprint","noProof","snapToGrid","vanish","webHidden","color","spacing","w","kern","position","sz","szCs","highlight","u",...RPR_AFTER_U]);
+  if(!directChildren(rp,"bCs").length) insertOrdered(rp,mk(doc,"bCs"),["i","iCs","caps","smallCaps","strike","dstrike","outline","shadow","emboss","imprint","noProof","snapToGrid","vanish","webHidden","color","spacing","w","kern","position","sz","szCs","highlight","u",...RPR_AFTER_U]); }
+function centerPara(doc,p){ let pp=directChildren(p,"pPr")[0]; if(!pp){ pp=mk(doc,"pPr"); p.insertBefore(pp,p.firstChild); }
+  directChildren(pp,"jc").forEach(j=>pp.removeChild(j)); const jc=mk(doc,"jc"); jc.setAttributeNS(W,"w:val","center");
+  insertOrdered(pp,jc,["textDirection","textAlignment","textboxTightWrap","outlineLvl","divId","cnfStyle","rPr","sectPr","pPrChange"]); }
+function fillBlank(doc,p,value,opts){
+  opts=opts||{};
+  const runs=elsW(p,"r"); let r=runs.find(x=>/_{2,}/.test(textOf(x)));
+  if(!r){ r=mk(doc,"r"); const t=mk(doc,"t"); setT(t," "+value); r.appendChild(t); p.appendChild(r); if(opts.underline) setUnderline(doc,r); return r; }
+  const t=elsW(r,"t").find(t=>/_{2,}/.test(t.textContent));
+  if(opts.underline&&value){
+    // split: text before the blank stays as is, the value goes in its own underlined run
+    const before=t.textContent.replace(/_{2,}.*$/,""); setT(t,before+" ");
+    const vr=r.cloneNode(true); elsW(vr,"t").forEach((x,i)=>{ if(i) x.parentNode.removeChild(x); }); setT(elsW(vr,"t")[0],"  "+value+"    ");
+    setUnderline(doc,vr); r.parentNode.insertBefore(vr,r.nextSibling);
+  } else setT(t,t.textContent.replace(/_{2,}/,value?" "+value:""));
+  let after=false; runs.forEach(x=>{ if(x===r){after=true;return;} if(after) elsW(x,"u").forEach(u=>u.parentNode.removeChild(u)); });
+  return r;
+}
+function _unused_fillBlank(doc,p,value){
   const runs=elsW(p,"r"); const r=runs.find(x=>/_{2,}/.test(textOf(x)));
   if(!r){ const nr=mk(doc,"r"); const t=mk(doc,"t"); setT(t," "+value); nr.appendChild(t); p.appendChild(nr); return nr; }
   const t=elsW(r,"t").find(t=>/_{2,}/.test(t.textContent)); setT(t,t.textContent.replace(/_{2,}/,value?" "+value:""));
@@ -485,7 +510,9 @@ function setCell(doc,tc,text,rprTpl){
 }
 function findCol(cells,re){ return cells.findIndex(c=>re.test(textOf(c).trim())); }
 
+const SIG_LINE=22; // underscores under the signature
 async function buildDocx(data){
+  let sigPos=null;
   const zip=await JSZip.loadAsync(loadTpl());
   const xml=await zip.file("word/document.xml").async("string");
   const doc=new DOMParser().parseFromString(xml,"application/xml");
@@ -494,15 +521,21 @@ async function buildDocx(data){
   const warn=[];
   for(const p of topPs){
     const tx=textOf(p);
-    if(/כרטיס\s*נוכחות/.test(tx)) fillBlank(doc,p,data.month);
-    else if(/^\s*שם\s*:/.test(tx)) fillBlank(doc,p,data.name);
-    else if(/^\s*ת\.?\s*ז/.test(tx)) fillBlank(doc,p,data.tz);
+    if(/כרטיס\s*נוכחות/.test(tx)){ fillBlank(doc,p,data.month); centerPara(doc,p);
+      // drop trailing blank runs so centering isn't skewed, bold everything (bCs = bold for Hebrew)
+      elsW(p,"r").forEach(r=>{ if(!textOf(r).trim() && !elsW(r,"drawing").length) r.parentNode.removeChild(r); else setBold(doc,r); }); }
+    else if(/^\s*שם\s*:/.test(tx)) fillBlank(doc,p,data.name,{underline:true});
+    else if(/^\s*ת\.?\s*ז/.test(tx)) fillBlank(doc,p,data.tz,{underline:true});
     else if(/חתימת\s*ה?פסיכולוג|חתימת\s*העובד|חתימת\s*עובד/.test(tx) && data.sig){
       // drop old drawings in this paragraph, put signature after the colon
       elsW(p,"drawing").forEach(d=>{ const r=d.parentNode; r.parentNode.removeChild(r); });
-      const anchor=fillBlank(doc,p,"");
-      const mr=mk(doc,"r"); const mt=mk(doc,"t"); mt.textContent="@@SIGNATURE@@"; mr.appendChild(mt);
-      anchor.parentNode.insertBefore(mr,anchor.nextSibling);
+      const runs=elsW(p,"r"); const ur=runs.find(x=>/_{2,}/.test(textOf(x)));
+      if(ur){ const t=elsW(ur,"t").find(t=>/_{2,}/.test(t.textContent)); setT(t,t.textContent.replace(/_{2,}/,"_".repeat(SIG_LINE))); }
+      else { const nr=mk(doc,"r"); const t=mk(doc,"t"); setT(t,"_".repeat(SIG_LINE)); nr.appendChild(t); p.appendChild(nr); }
+      const label=textOf(p).replace(/_+/g,"");
+      const sp=elsW(p,"spacing").find(x=>x.parentNode.localName==="pPr");
+      sigPos={labelChars:label.length, before:sp?+(sp.getAttributeNS(W,"before")||sp.getAttribute("w:before")||0):0};
+      const mr=mk(doc,"r"); const mt=mk(doc,"t"); mt.textContent="@@SIGNATURE@@"; mr.appendChild(mt); p.appendChild(mr);
     }
   }
   // table
@@ -524,9 +557,19 @@ async function buildDocx(data){
   if(!/^<\?xml/.test(out)) out='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'+out;
   if(data.sig){
     const rid="rIdAttSig1"; const {bytes,w,h}=data.sig;
-    const cy=Math.round(0.6*360000), cx=Math.min(Math.round(cy*w/h),Math.round(3.5*360000)); const cy2=Math.round(cx*h/w);
+    const CM=360000;
     const A="http://schemas.openxmlformats.org/drawingml/2006/main", PIC="http://schemas.openxmlformats.org/drawingml/2006/picture";
-    const drawing=`<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy2}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="9101" name="Signature"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${A}" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="${A}"><a:graphicData uri="${PIC}"><pic:pic xmlns:pic="${PIC}"><pic:nvPicPr><pic:cNvPr id="0" name="signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy2}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+    let cx=Math.round(3.6*CM), cy2=Math.round(cx*h/w); if(cy2>1.1*CM){ cy2=Math.round(1.1*CM); cx=Math.round(cy2*w/h); }
+    // page text width from the section properties (twips -> EMU)
+    const sect=elsW(doc,"pgSz")[0], mar=elsW(doc,"pgMar")[0]; const ga=(el,n)=>el?+(el.getAttributeNS(W,n)||el.getAttribute("w:"+n)||0):0;
+    const textW=((ga(sect,"w")||11906)-(ga(mar,"left")||1800)-(ga(mar,"right")||1800))*635;
+    const CHAR=0.19*CM; // average glyph width at the form's body size
+    const labelW=(sigPos?sigPos.labelChars:20)*CHAR, lineW=SIG_LINE*CHAR;
+    const lineCenterFromLeft=textW-labelW-lineW/2;              // paragraph is right-aligned (RTL)
+    const posH=Math.round(lineCenterFromLeft-cx/2);
+    const baseline=((sigPos?sigPos.before:120)*635)+Math.round(0.42*CM); // top of paragraph -> text baseline
+    const posV=Math.round(baseline-cy2+0.05*CM);                 // signature bottom just above the line
+    const drawing=`<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251660288" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="margin"><wp:posOffset>${posH}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>${posV}</wp:posOffset></wp:positionV><wp:extent cx="${cx}" cy="${cy2}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="9101" name="Signature"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${A}" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="${A}"><a:graphicData uri="${PIC}"><pic:pic xmlns:pic="${PIC}"><pic:nvPicPr><pic:cNvPr id="0" name="signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy2}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
     const re=/<w:r(?:\s[^>]*)?>\s*<w:t(?:\s[^>]*)?>@@SIGNATURE@@<\/w:t>\s*<\/w:r>/;
     if(re.test(out)){
       out=out.replace(re,drawing);

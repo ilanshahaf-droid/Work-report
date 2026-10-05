@@ -1,4 +1,4 @@
-const CACHE="hatchamot-v2";
+const CACHE="hatchamot-v3";
 const ASSETS=["./","./index.html","./manifest.json","./icon-192.png","./icon-512.png",
  "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
  "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"];
