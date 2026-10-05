@@ -13,6 +13,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Secular+One&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== הגדרות ענן: מדביקים כאן את הפרטים מ-Supabase (Project Settings → API) =====
+   אם משאירים ריק, האפליקציה עובדת בלי ענן ושומרת הכול בטלפון בלבד. */
+const SUPABASE_URL = "https://pznpibrlcbjpcoxagxns.supabase.co";       // לדוגמה: https://abcdefgh.supabase.co
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6bnBpYnJsY2JqcGNveGFneG5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjEzMjUsImV4cCI6MjEwMjUzNzMyNX0.dvfKlGyI1U_E7G5POQJkLn28gky7cTyJbQqT3Mie_YU";  // המפתח הציבורי (anon public)
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -99,6 +106,16 @@ details summary{cursor:pointer;color:var(--ink);font-weight:600}
 .check{margin-top:12px;font-size:14px;padding:10px 12px;border-radius:8px;background:var(--stamp-bg);color:var(--ink);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .check button{padding:3px 10px;font-size:14px}
 td select{font:inherit;font-size:13px;color:var(--ink);background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:5px}
+.acct{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:8px 12px;font-size:14px}
+.acct button{padding:4px 10px;font-size:14px}
+body.locked section.step:not(#auth){display:none}
+input[type=email],input[type=password]{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:8px 10px;width:100%}
+.month{border-top:1px solid var(--rule);padding:10px 0}
+.month:first-child{border-top:none}
+.month h3{font-family:"Secular One",Arial,sans-serif;font-weight:400;font-size:17px;margin:0 0 6px}
+.month .bar{margin-top:0}
+.month .bar button{font-size:14px;padding:5px 10px}
+.month .bar button.del{border-color:var(--stamp);color:var(--stamp)}
 details{margin-top:12px;font-size:14px;color:var(--soft)}
 @media (prefers-reduced-motion:no-preference){ .stamp{animation:thunk .5s ease-out both} @keyframes thunk{from{transform:rotate(-9deg) scale(1.6);opacity:0}to{transform:rotate(-9deg) scale(1);opacity:.85}} }
 </style>
@@ -110,6 +127,23 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
   <p>מעלים את קובץ דיווחי השעות מאקסל ומסמנים את הימים שבהם השעון לא קלט כניסה או יציאה. האפליקציה משלימה את השעות מהאקסל ומפיקה כרטיס נוכחות בוורד עם הפרטים והחתימה שלך.</p>
   <span class="stamp">חסרה החתמה</span>
 </header>
+
+<div class="acct" id="acct" hidden><span>מחובר: <b id="acctEmail"></b></span><span id="syncState" class="src"></span><button id="logout">התנתק</button></div>
+
+<section class="step authbox" id="auth" hidden><span class="punch">☁</span>
+  <h2 id="authTitle">כניסה לחשבון</h2>
+  <p class="hint">הפרטים, החתימה והדוחות נשמרים בענן, וזמינים מכל מכשיר שנכנסים ממנו.</p>
+  <div id="authForm">
+    <label class="f" for="email">מייל</label><input type="email" id="email" autocomplete="email" dir="ltr">
+    <label class="f" for="pass">סיסמה</label><input type="password" id="pass" autocomplete="current-password" dir="ltr">
+    <div class="bar"><button class="primary" id="login">כניסה</button><button id="signup">הרשמה</button><button class="x" id="forgot">שכחתי סיסמה</button></div>
+  </div>
+  <div id="newPassForm" hidden>
+    <label class="f" for="newPass">סיסמה חדשה</label><input type="password" id="newPass" autocomplete="new-password" dir="ltr">
+    <div class="bar"><button class="primary" id="setPass">שמור סיסמה</button></div>
+  </div>
+  <div class="status" id="authStatus"></div>
+</section>
 
 <section class="step" id="s1"><span class="punch">1</span>
   <h2>הפרטים שלי</h2>
@@ -174,6 +208,13 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
   <div class="status" id="s5status"></div>
   <a id="dl" hidden></a>
 </section>
+
+<section class="step cloudonly" id="files" hidden><span class="punch">☁</span>
+  <h2>התיקייה שלי בענן</h2>
+  <p class="hint">כל כרטיס נוכחות שמפיקים נשמר כאן, לפי חודש, יחד עם קבצי האקסל שהועלו. "טען לעריכה" מחזיר את קבצי החודש לאפליקציה כדי לתקן ולהפיק מחדש.</p>
+  <div id="fileList"><div class="empty">טוען…</div></div>
+  <div class="status" id="filesStatus"></div>
+</section>
 </main>
 
 <script>
@@ -183,7 +224,7 @@ const HEB_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","
 const $ = s => document.querySelector(s);
 const store = {
   get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
-  set(k,v){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} }
+  set(k,v,quiet){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} if(!quiet&&window.cloudOnChange) cloudOnChange(k,v); }
 };
 function setStatus(id,msg,kind){ const el=$(id); el.textContent=msg||""; el.className="status"+(kind?" "+kind:""); }
 const pad2 = n => String(n).padStart(2,"0");
@@ -328,27 +369,34 @@ function clockMissing(c){
   return null;
 }
 
+function loadHoursBytes(bytes){
+  S.excel=parseHours(bytes);
+  const n=Object.keys(S.excel).length;
+  if(!n) setStatus("#s3status","לא נמצאו בקובץ עמודות תאריך, כניסה ויציאה.","err");
+  else setStatus("#s3status",`נטענו ${n} ימי דיווח מהקובץ.`,"ok");
+  if(!S.clock.length) jumpToMonth(Object.keys(S.excel));
+  refreshFromExcel(); autoMonth(); renderCal(); renderRows(); renderCheck(); markDone();
+  return Object.keys(S.excel);
+}
+function loadClockBytes(bytes){
+  const rows=parseClock(bytes);
+  if(!rows.length){ setStatus("#clockStatus","לא מצאתי בקובץ עמודות תאריך, כניסה ויציאה.","err"); return []; }
+  S.clock=rows; buildFromClock(); jumpToMonth(rows.map(r=>r.date));
+  const n=S.rows.length;
+  setStatus("#clockStatus",`נקראו ${rows.length} ימים מדוח השעון. ${n?`ב-${n} מהם חסרה החתמה, והם סומנו בלוח.`:"לא נמצא אף יום עם החתמה חסרה."}`,"ok");
+  S.monthAuto=true; autoMonth(); renderCal(); renderRows(); renderCheck(); markDone();
+  return rows.map(r=>r.date);
+}
 $("#xlsFile").onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
-  try{ if(!window.XLSX) throw new Error("nolib");
-    S.excel=parseHours(new Uint8Array(await f.arrayBuffer()));
-    const n=Object.keys(S.excel).length;
-    if(!n) setStatus("#s3status","לא נמצאו בקובץ עמודות תאריך, כניסה ויציאה.","err");
-    else setStatus("#s3status",`נטענו ${n} ימי דיווח מהקובץ.`,"ok");
-    if(!S.clock.length) jumpToMonth(Object.keys(S.excel));
-    refreshFromExcel(); autoMonth(); renderCal(); renderRows(); renderCheck();
+  try{ if(!window.XLSX) throw new Error("nolib"); const bytes=new Uint8Array(await f.arrayBuffer());
+    const dates=loadHoursBytes(bytes); if(dates.length) cloudSaveSource(bytes,"hours",dates,f.name);
   }catch(err){ setStatus("#s3status","לא הצלחתי לקרוא את הקובץ.","err"); }
-  markDone(); e.target.value=""; };
-
+  e.target.value=""; };
 $("#clockFile").onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
-  try{ if(!window.XLSX) throw new Error("nolib");
-    const rows=parseClock(new Uint8Array(await f.arrayBuffer()));
-    if(!rows.length){ setStatus("#clockStatus","לא מצאתי בקובץ עמודות תאריך, כניסה ויציאה.","err"); return; }
-    S.clock=rows; buildFromClock(); jumpToMonth(rows.map(r=>r.date));
-    const n=S.rows.length;
-    setStatus("#clockStatus",`נקראו ${rows.length} ימים מדוח השעון. ${n?`ב-${n} מהם חסרה החתמה, והם סומנו בלוח.`:"לא נמצא אף יום עם החתמה חסרה."}`,"ok");
-    S.monthAuto=true; autoMonth(); renderCal(); renderRows(); renderCheck();
+  try{ if(!window.XLSX) throw new Error("nolib"); const bytes=new Uint8Array(await f.arrayBuffer());
+    const dates=loadClockBytes(bytes); if(dates.length) cloudSaveSource(bytes,"clock",dates,f.name);
   }catch(err){ setStatus("#clockStatus","לא הצלחתי לקרוא את הקובץ.","err"); }
-  markDone(); e.target.value=""; };
+  e.target.value=""; };
 $("#copyPrompt").onclick=async()=>{ try{ await navigator.clipboard.writeText($("#clockPrompt").textContent.trim()); $("#copyPrompt").textContent="הועתק ✓"; }catch(e){ $("#copyPrompt").textContent="סמן והעתק ידנית"; } setTimeout(()=>$("#copyPrompt").textContent="העתק את ההנחיה",2000); };
 
 /* ---------- step 3: calendar ---------- */
@@ -608,15 +656,160 @@ $("#make").onclick=async()=>{
     lastFile=new File([blob],fname,{type:blob.type});
     $("#share").hidden=!(navigator.canShare&&navigator.canShare({files:[lastFile]}));
     const missing=S.rows.filter(r=>!r.in||!r.out).length;
-    let msg=`הקובץ מוכן: ${filled} ימים מולאו.`; if(missing) msg+=` שים לב: ב-${missing} ימים עדיין חסרה שעה.`;
+    let msg=`הקובץ מוכן: ${filled} ימים מולאו.`;
+    if(cloud.user){ const ok=await cloudSaveReport(blob,ym); msg+= ok?" נשמר גם בענן.":" השמירה בענן נכשלה."; } if(missing) msg+=` שים לב: ב-${missing} ימים עדיין חסרה שעה.`;
     if(!data.sig) msg+=" לא נוספה חתימה כי אין חתימה שמורה."; if(warn.includes("sig")) msg+=" לא מצאתי בתבנית שורת חתימה.";
     setStatus("#s5status",msg,missing?"err":"ok");
   }catch(e){ setStatus("#s5status",e.message||"יצירת הקובץ נכשלה.","err"); }
   finally{ btn.disabled=false; }
 };
 
+/* ================= cloud (Supabase) ================= */
+const BUCKET="attendance", PROFILE_TABLE="attendance_profiles";
+const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", DOCX_MIME="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const cloud={sb:null,user:null,applying:false,timer:null};
+const cloudOn = () => !!(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase);
+const monthOf = isos => { const c={}; isos.forEach(d=>{ const k=d.slice(0,7); c[k]=(c[k]||0)+1; }); return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0]; };
+const monthLabel = ym => HEB_MONTHS[+ym.slice(5,7)-1]+" "+ym.slice(0,4);
+const P = rel => cloud.user.id+"/"+rel;
+function syncState(t){ $("#syncState").textContent=t||""; }
+function authErr(e){ const m=(e&&e.message)||"";
+  if(/invalid login/i.test(m)) return "מייל או סיסמה לא נכונים.";
+  if(/not confirmed/i.test(m)) return "צריך קודם לאשר את המייל דרך הקישור שנשלח אליך.";
+  if(/already registered/i.test(m)) return "המייל הזה כבר רשום. נסה להיכנס.";
+  if(/at least 6/i.test(m)) return "הסיסמה צריכה להיות לפחות 6 תווים.";
+  if(/rate limit/i.test(m)) return "יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.";
+  return "משהו השתבש: "+m; }
+
+async function cloudInit(){
+  if(!cloudOn()) return;            // local-only mode
+  cloud.sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  cloud.sb.auth.onAuthStateChange((ev,session)=>{
+    if(ev==="PASSWORD_RECOVERY"){ showAuth(true); return; }
+    const u=session&&session.user;
+    if(u && (!cloud.user || cloud.user.id!==u.id)) setTimeout(()=>onLogin(u),0);
+    if(!u && cloud.user) onLogout();
+  });
+  const {data}=await cloud.sb.auth.getSession();
+  if(data&&data.session&&data.session.user) onLogin(data.session.user); else showAuth(false);
+}
+function showAuth(recovery){
+  document.body.classList.add("locked"); $("#auth").hidden=false; $("#acct").hidden=true; $("#files").hidden=true;
+  $("#authForm").hidden=!!recovery; $("#newPassForm").hidden=!recovery;
+  $("#authTitle").textContent=recovery?"בחירת סיסמה חדשה":"כניסה לחשבון";
+}
+async function onLogin(u){
+  cloud.user=u; document.body.classList.remove("locked"); $("#auth").hidden=true;
+  $("#acct").hidden=false; $("#acctEmail").textContent=u.email; $("#files").hidden=false;
+  await cloudPullProfile(); await cloudPullTemplate(); renderFiles();
+}
+function onLogout(){
+  cloud.user=null; ["att_name","att_tz","att_sig","att_tpl"].forEach(k=>store.set(k,null,true));
+  $("#name").value=""; $("#tz").value=""; showSig(); loadTpl(); showAuth(false);
+}
+$("#login").onclick=async()=>{ setStatus("#authStatus","מתחבר…");
+  const {error}=await cloud.sb.auth.signInWithPassword({email:$("#email").value.trim(),password:$("#pass").value});
+  setStatus("#authStatus",error?authErr(error):"",error?"err":""); };
+$("#signup").onclick=async()=>{ setStatus("#authStatus","יוצר חשבון…");
+  const {data,error}=await cloud.sb.auth.signUp({email:$("#email").value.trim(),password:$("#pass").value,options:{emailRedirectTo:location.href.split("#")[0]}});
+  if(error) return setStatus("#authStatus",authErr(error),"err");
+  setStatus("#authStatus",data.session?"החשבון נוצר.":"החשבון נוצר. שלחנו אליך מייל אישור, לחץ על הקישור שבו ואז היכנס.","ok"); };
+$("#forgot").onclick=async()=>{ const email=$("#email").value.trim(); if(!email) return setStatus("#authStatus","כתוב קודם את המייל.","err");
+  const {error}=await cloud.sb.auth.resetPasswordForEmail(email,{redirectTo:location.href.split("#")[0]});
+  setStatus("#authStatus",error?authErr(error):"שלחנו מייל עם קישור לבחירת סיסמה חדשה.",error?"err":"ok"); };
+$("#setPass").onclick=async()=>{ const {error}=await cloud.sb.auth.updateUser({password:$("#newPass").value});
+  if(error) return setStatus("#authStatus",authErr(error),"err");
+  setStatus("#authStatus","הסיסמה עודכנה.","ok"); const {data}=await cloud.sb.auth.getUser(); if(data&&data.user) onLogin(data.user); };
+$("#logout").onclick=()=>cloud.sb.auth.signOut();
+
+/* profile: name, ID, signature */
+async function cloudPullProfile(){
+  syncState("מסנכרן…");
+  const {data,error}=await cloud.sb.from(PROFILE_TABLE).select("full_name,id_number,signature").eq("user_id",cloud.user.id).maybeSingle();
+  if(error){ syncState("הסנכרון נכשל"); return; }
+  if(data){ store.set("att_name",data.full_name||"",true); store.set("att_tz",data.id_number||"",true); store.set("att_sig",data.signature||null,true); }
+  else await cloudPushProfile();   // first login: upload what's on this device
+  $("#name").value=store.get("att_name")||""; $("#tz").value=store.get("att_tz")||""; showSig(); syncState("מסונכרן");
+}
+async function cloudPushProfile(){
+  if(!cloud.user) return; syncState("שומר…");
+  const {error}=await cloud.sb.from(PROFILE_TABLE).upsert({user_id:cloud.user.id,full_name:store.get("att_name")||"",id_number:store.get("att_tz")||"",signature:store.get("att_sig")||null,updated_at:new Date().toISOString()});
+  syncState(error?"השמירה בענן נכשלה":"מסונכרן");
+}
+window.cloudOnChange=(k,v)=>{
+  if(!cloud.user) return;
+  if(["att_name","att_tz","att_sig"].includes(k)){ clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPushProfile,800); }
+  if(k==="att_tpl") cloudPushTemplate(v);
+};
+
+/* template */
+async function cloudPullTemplate(){
+  const {data}=await cloud.sb.storage.from(BUCKET).download(P("template.docx"));
+  if(data){ store.set("att_tpl",bytesToB64(new Uint8Array(await data.arrayBuffer())),true); }
+  else if(store.get("att_tpl")) await cloudPushTemplate(store.get("att_tpl"));
+  loadTpl();
+}
+async function cloudPushTemplate(b64){
+  if(!b64){ await cloud.sb.storage.from(BUCKET).remove([P("template.docx")]); return; }
+  await cloud.sb.storage.from(BUCKET).upload(P("template.docx"),new Blob([b64ToBytes(b64)],{type:DOCX_MIME}),{upsert:true,contentType:DOCX_MIME});
+}
+
+/* files: reports/<YYYY-MM>.docx, sources/<YYYY-MM>_hours.xlsx, sources/<YYYY-MM>_clock.xlsx */
+async function cloudSaveSource(bytes,kind,isos,name){
+  if(!cloud.user) return; const ym=monthOf(isos); const ext=(name.split(".").pop()||"xlsx").toLowerCase();
+  const {error}=await cloud.sb.storage.from(BUCKET).upload(P(`sources/${ym}_${kind}.${ext}`),new Blob([bytes],{type:XLSX_MIME}),{upsert:true,contentType:XLSX_MIME});
+  if(!error) renderFiles();
+}
+async function cloudSaveReport(blob,ym){
+  const {error}=await cloud.sb.storage.from(BUCKET).upload(P(`reports/${ym}.docx`),blob,{upsert:true,contentType:DOCX_MIME});
+  renderFiles(); return !error;
+}
+async function listDir(dir){ const {data,error}=await cloud.sb.storage.from(BUCKET).list(P(dir),{limit:1000,sortBy:{column:"name",order:"desc"}}); return error?[]:(data||[]).filter(f=>f.id); }
+async function renderFiles(){
+  if(!cloud.user) return; const box=$("#fileList");
+  const [reps,srcs]=await Promise.all([listDir("reports"),listDir("sources")]);
+  const months={};
+  reps.forEach(f=>{ const m=f.name.match(/^(\d{4}-\d{2})\.docx$/); if(m) (months[m[1]]=months[m[1]]||{}).report="reports/"+f.name; });
+  srcs.forEach(f=>{ const m=f.name.match(/^(\d{4}-\d{2})_(hours|clock)\./); if(m) (months[m[1]]=months[m[1]]||{})[m[2]]="sources/"+f.name; });
+  const keys=Object.keys(months).sort().reverse();
+  box.innerHTML = keys.length ? "" : '<div class="empty">עדיין אין קבצים. כרטיס שתפיק יישמר כאן אוטומטית.</div>';
+  keys.forEach(ym=>{ const m=months[ym]; const div=document.createElement("div"); div.className="month";
+    div.innerHTML=`<h3>${monthLabel(ym)}</h3><div class="bar"></div>`; const bar=div.querySelector(".bar");
+    const add=(label,fn,cls)=>{ const b=document.createElement("button"); b.textContent=label; if(cls) b.className=cls; b.onclick=fn; bar.appendChild(b); };
+    if(m.report) add("כרטיס נוכחות ⬇",()=>cloudDownload(m.report,`כרטיס_נוכחות_${monthLabel(ym).replace(" ","_")}.docx`));
+    if(m.hours) add("קובץ שעות ⬇",()=>cloudDownload(m.hours,`שעות_${ym}.xlsx`));
+    if(m.clock) add("דוח שעון ⬇",()=>cloudDownload(m.clock,`דוח_שעון_${ym}.xlsx`));
+    if(m.hours||m.clock) add("טען לעריכה",()=>cloudLoadMonth(m,ym),"primary");
+    add("מחק",()=>cloudDeleteMonth(m,ym),"del");
+    box.appendChild(div); });
+}
+async function cloudDownload(rel,fname){
+  setStatus("#filesStatus","מוריד…");
+  const {data,error}=await cloud.sb.storage.from(BUCKET).download(P(rel));
+  if(error||!data) return setStatus("#filesStatus","ההורדה נכשלה.","err");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(data); a.download=fname; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000); setStatus("#filesStatus","");
+}
+async function cloudLoadMonth(m,ym){
+  setStatus("#filesStatus","טוען את "+monthLabel(ym)+"…");
+  S.clock=[]; S.rows=[]; S.excel={};
+  for(const kind of ["hours","clock"]){ if(!m[kind]) continue;
+    const {data}=await cloud.sb.storage.from(BUCKET).download(P(m[kind])); if(!data) continue;
+    const bytes=new Uint8Array(await data.arrayBuffer()); kind==="hours"?loadHoursBytes(bytes):loadClockBytes(bytes); }
+  S.monthAuto=true; autoMonth(); renderCal(); renderRows(); renderCheck();
+  setStatus("#filesStatus",monthLabel(ym)+" נטען. אפשר לתקן ולהפיק מחדש.","ok");
+  $("#s2").scrollIntoView({behavior:"smooth"});
+}
+async function cloudDeleteMonth(m,ym){
+  if(!confirm(`למחוק את כל הקבצים של ${monthLabel(ym)} מהענן?`)) return;
+  const paths=[m.report,m.hours,m.clock].filter(Boolean).map(P);
+  const {error}=await cloud.sb.storage.from(BUCKET).remove(paths);
+  setStatus("#filesStatus",error?"המחיקה נכשלה.":"נמחק.",error?"err":"ok"); renderFiles();
+}
+
 $("#share").onclick=async()=>{ if(!lastFile) return; try{ await navigator.share({files:[lastFile],title:lastFile.name}); }catch(e){} };
 loadTpl(); showSig(); renderCal(); renderRows();
+cloudInit();
 if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 </body>
