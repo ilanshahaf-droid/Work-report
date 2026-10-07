@@ -854,6 +854,7 @@ $("#gMake").onclick=async()=>{
 // Converting takes a few seconds, longer than the browser keeps a tap "fresh" for sharing,
 // so the first tap prepares the PDF and the second tap opens the share sheet.
 const pdfCache=new WeakMap();
+function monthKeyOf(name){ const i=HEB_MONTHS.findIndex(m=>name.includes(m)); const y=(name.match(/20\d{2}/)||[""])[0]; return (y&&i>=0)?y+"-"+pad2(i+1):(y||"report"); }
 function shareBtnLabel(btn,ready){ btn.textContent = ready ? "שתף PDF עכשיו" : "שתף כ-PDF…"; btn.classList.toggle("primary",!!ready); }
 async function toPdf(file){
   const fd=new FormData();
@@ -876,8 +877,16 @@ function shareButton(btnSel,statusSel,getFile){
     const file=getFile(); if(!file) return;
     const ready=pdfCache.get(file);
     if(ready){ // second tap: share now, while the tap is fresh
-      try{ await navigator.share({files:[ready],title:ready.name}); }
-      catch(e){ if(e&&e.name!=="AbortError") setStatus(statusSel,"השיתוף נכשל. נסה שוב.","err"); }
+      try{ await navigator.share({files:[ready]}); }
+      catch(e){
+        if(e&&e.name==="AbortError") return;
+        // next tap tries again with a plain English file name, which some phones need
+        const ym=(ready.name.match(/(\d{4})/)||[])[1]||"";
+        const plain=new File([ready],(ready.name.includes("גפן")?"gefen-report":"attendance-card")+"-"+monthKeyOf(ready.name)+".pdf",{type:"application/pdf"});
+        pdfCache.set(file,plain);
+        $(statusSel).className="status err";
+        $(statusSel).innerHTML=`השיתוף נכשל (${esc((e&&e.name)||"")}${e&&e.message?": "+esc(e.message):""}). לחץ שוב על "שתף PDF עכשיו" לניסיון נוסף, או <a href="${URL.createObjectURL(ready)}" download="${esc(ready.name)}">הורד את ה-PDF</a> ושתף אותו מתיקיית ההורדות.`;
+      }
       return;
     }
     if(!driveOn()) return setStatus(statusSel,"כדי לשתף כ-PDF צריך את החיבור ל-Google Drive, והוא לא נטען. רענן ונסה שוב.","err");
@@ -887,7 +896,8 @@ function shareButton(btnSel,statusSel,getFile){
       await tokenP;
       let pdf; try{ pdf=await toPdf(file); }catch(e){ if(e&&e.code==="auth"){ await driveToken(); pdf=await toPdf(file); } else throw e; }
       pdfCache.set(file,pdf); shareBtnLabel(btn,true);
-      setStatus(statusSel,"ה-PDF מוכן. לחץ על \"שתף PDF עכשיו\".","ok");
+      $(statusSel).className="status ok";
+      $(statusSel).innerHTML=`ה-PDF מוכן. לחץ על "שתף PDF עכשיו", או <a href="${URL.createObjectURL(pdf)}" download="${esc(pdf.name)}">הורד אותו</a>.`;
     }catch(e){
       const t=(e&&(e.type||e.error))||"";
       setStatus(statusSel,/popup_closed|access_denied|popup_failed/.test(t)?"ההתחברות ל-Google בוטלה. לחץ שוב כדי לנסות.":"הכנת ה-PDF נכשלה. נסה שוב בעוד רגע.","err");
