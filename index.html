@@ -14,11 +14,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Secular+One&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 /* ===== הגדרות ענן: מדביקים כאן את הפרטים מ-Supabase (Project Settings → API) =====
    אם משאירים ריק, האפליקציה עובדת בלי ענן ושומרת הכול בטלפון בלבד. */
 const SUPABASE_URL = "https://pznpibrlcbjpcoxagxns.supabase.co";       // לדוגמה: https://abcdefgh.supabase.co
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6bnBpYnJsY2JqcGNveGFneG5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjEzMjUsImV4cCI6MjEwMjUzNzMyNX0.dvfKlGyI1U_E7G5POQJkLn28gky7cTyJbQqT3Mie_YU";  // המפתח הציבורי (anon public)
+/* ===== Google Drive: מזהה ההתחברות (Client ID) מ-Google Cloud. ריק = בלי כפתור דרייב ===== */
+const GOOGLE_CLIENT_ID = "263320563771-rfj4nveccqd00uc5cu72ckkgtonid1v7.apps.googleusercontent.com";
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -124,6 +127,8 @@ body.locked .modes{display:none}
 .ftitle{font-family:"Secular One",Arial,sans-serif;font-weight:400;font-size:18px;margin:16px 0 4px}
 tfoot td{border-bottom:none;padding-top:10px}
 td input[type=date]{font:inherit;font-size:13px;padding:5px 4px;width:9.5em}
+.drivebtn::before{content:"";width:16px;height:16px;background:conic-gradient(#0F9D58 0 33%,#F4B400 0 66%,#4285F4 0);clip-path:polygon(50% 0,100% 85%,0 85%);display:inline-block}
+.status a{color:inherit;font-weight:700}
 details{margin-top:12px;font-size:14px;color:var(--soft)}
 @media (prefers-reduced-motion:no-preference){ .stamp{animation:thunk .5s ease-out both} @keyframes thunk{from{transform:rotate(-9deg) scale(1.6);opacity:0}to{transform:rotate(-9deg) scale(1);opacity:.85}} }
 </style>
@@ -216,6 +221,7 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
     <label class="filebtn">החלף תבנית<input type="file" id="tplFile" accept=".docx"></label>
     <button id="tplReset" hidden>חזור לתבנית המקורית</button>
     <button id="share" hidden>שתף…</button>
+    <button id="driveBtn" class="drivebtn" hidden>שמור בדרייב</button>
   </div>
   <div class="status" id="s5status"></div>
   <a id="dl" hidden></a>
@@ -247,7 +253,7 @@ details{margin-top:12px;font-size:14px;color:var(--soft)}
 <section class="step m-gefen" id="g3"><span class="punch">4</span>
   <h2>דוח הגפ"ן בוורד</h2>
   <p class="hint">נבנה על הטופס "דיווח שעות עבודה בבתי הספר במסגרת הגפ"ן". החתימה שלך נכנסת לשורת הפסיכולוג.ית. חתימות מנהל.ת ביה"ס ומנהלת השפ"ח נשארות ריקות.</p>
-  <div class="bar"><button class="primary" id="gMake">הפק דוח גפ"ן</button><button id="gShare" hidden>שתף…</button></div>
+  <div class="bar"><button class="primary" id="gMake">הפק דוח גפ"ן</button><button id="gShare" hidden>שתף…</button><button id="gDriveBtn" class="drivebtn" hidden>שמור בדרייב</button></div>
   <div class="status" id="gMakeStatus"></div>
 </section>
 
@@ -760,7 +766,7 @@ $("#make").onclick=async()=>{
     const ym=(S.rows[0].date||"").slice(0,7);
     const fname=`כרטיס_נוכחות_${data.month.replace(/\s+/g,"_")||ym}.docx`;
     const a=$("#dl"); if(a.href) URL.revokeObjectURL(a.href); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-    lastFile=new File([blob],fname,{type:blob.type});
+    lastFile=new File([blob],fname,{type:blob.type}); $("#driveBtn").hidden=!driveOn();
     $("#share").hidden=!(navigator.canShare&&navigator.canShare({files:[lastFile]}));
     const missing=S.rows.filter(r=>!rowDone(r)).length;
     let msg=`הקובץ מוכן: ${filled} ימים מולאו.`;
@@ -834,7 +840,7 @@ $("#gMake").onclick=async()=>{
     const ym=monthOf(rows.map(r=>r.date));
     const fname=`דיווח_גפן_${(data.month||ym).replace(/\s+/g,"_")}.docx`;
     const a=$("#dl"); if(a.href) URL.revokeObjectURL(a.href); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-    gLast=new File([blob],fname,{type:blob.type}); $("#gShare").hidden=!(navigator.canShare&&navigator.canShare({files:[gLast]}));
+    gLast=new File([blob],fname,{type:blob.type}); $("#gShare").hidden=!(navigator.canShare&&navigator.canShare({files:[gLast]})); $("#gDriveBtn").hidden=!driveOn();
     let msg=`הדוח מוכן: ${filled} שורות, סה"כ ${fmtHM(rows.reduce((s,r)=>s+gDur(r),0))} שעות.`;
     if(cloud.user){ const ok=await cloudSaveReport(blob,ym,"gefen"); msg+= ok?" נשמר גם בענן.":" השמירה בענן נכשלה."; }
     if(bad) msg+=` שים לב: ב-${bad} שורות חסרה שעה.`; if(!data.school) msg+=" שם בית הספר ריק."; if(!data.sig) msg+=" לא נוספה חתימה כי אין חתימה שמורה.";
@@ -849,6 +855,65 @@ function setMode(m){ document.body.dataset.mode=m; store.set("att_mode",m,true);
   document.querySelectorAll(".modes button").forEach(b=>b.setAttribute("aria-selected",b.dataset.mode===m)); }
 document.querySelectorAll(".modes button").forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 setMode(store.get("att_mode")==="gefen"?"gefen":"work");
+
+/* ================= Google Drive ================= */
+// scope drive.file: the app sees only files and folders it created itself
+const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file", DRIVE_ROOT="משלים החתמות";
+const drive={token:null,exp:0,client:null,folders:{}};
+const driveOn = () => !!(GOOGLE_CLIENT_ID && window.google && google.accounts && google.accounts.oauth2);
+function driveToken(){ // must be called straight from a tap: it may open Google's sign-in window
+  return new Promise((res,rej)=>{
+    if(drive.token && Date.now()<drive.exp-60000) return res(drive.token);
+    if(!drive.client) drive.client=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CLIENT_ID,scope:DRIVE_SCOPE,callback:()=>{}});
+    drive.client.callback=r=>{ if(r.error) return rej(r); drive.token=r.access_token; drive.exp=Date.now()+(+r.expires_in||3600)*1000; res(drive.token); };
+    drive.client.error_callback=e=>rej(e);
+    const hint=(cloud.user&&cloud.user.email)||undefined;
+    drive.client.requestAccessToken(hint?{login_hint:hint}:{});
+  });
+}
+async function gfetch(url,opts){ const r=await fetch(url,{...opts,headers:{...((opts&&opts.headers)||{}),Authorization:"Bearer "+drive.token}});
+  if(r.status===401){ drive.token=null; throw {code:"auth"}; } if(!r.ok) throw new Error("drive "+r.status); return r.json(); }
+const qs = v => "'"+String(v).replace(/\\/g,"\\\\").replace(/'/g,"\\'")+"'";
+async function driveFolder(name,parent){
+  const key=parent+"/"+name; if(drive.folders[key]) return drive.folders[key];
+  const q=`name=${qs(name)} and mimeType='application/vnd.google-apps.folder' and trashed=false and ${qs(parent)} in parents`;
+  const j=await gfetch("https://www.googleapis.com/drive/v3/files?fields=files(id)&q="+encodeURIComponent(q));
+  let id=j.files&&j.files[0]&&j.files[0].id;
+  if(!id) id=(await gfetch("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name,mimeType:"application/vnd.google-apps.folder",parents:[parent]})})).id;
+  return drive.folders[key]=id;
+}
+async function driveUpload(file,kind){
+  const root=await driveFolder(DRIVE_ROOT,"root");
+  const sub=await driveFolder(kind==="gefen"?'גפ"ן':"שעות עבודה",root);
+  const q=`name=${qs(file.name)} and ${qs(sub)} in parents and trashed=false`;
+  const ex=await gfetch("https://www.googleapis.com/drive/v3/files?fields=files(id)&q="+encodeURIComponent(q));
+  const old=ex.files&&ex.files[0]&&ex.files[0].id;
+  if(old) // same month again: replace the content of the existing file
+    return gfetch(`https://www.googleapis.com/upload/drive/v3/files/${old}?uploadType=media&fields=id,webViewLink`,{method:"PATCH",headers:{"Content-Type":file.type},body:file});
+  const fd=new FormData();
+  fd.append("metadata",new Blob([JSON.stringify({name:file.name,parents:[sub]})],{type:"application/json"}));
+  fd.append("file",file);
+  return gfetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",{method:"POST",body:fd});
+}
+function driveButton(btnSel,statusSel,getFile,kind){
+  $(btnSel).onclick=async()=>{
+    const f=getFile(); if(!f) return; const btn=$(btnSel);
+    let tokenP; try{ tokenP=driveToken(); }catch(e){ return setStatus(statusSel,"ההתחברות ל-Google לא נטענה. רענן ונסה שוב.","err"); }
+    btn.disabled=true; setStatus(statusSel,"מתחבר ל-Google Drive…");
+    try{
+      await tokenP; setStatus(statusSel,"מעלה לדרייב…");
+      let r; try{ r=await driveUpload(f,kind); }catch(e){ if(e&&e.code==="auth"){ await driveToken(); r=await driveUpload(f,kind); } else throw e; }
+      const folder=`${DRIVE_ROOT} / ${kind==="gefen"?'גפ"ן':"שעות עבודה"}`;
+      $(statusSel).className="status ok"; $(statusSel).innerHTML=`נשמר בדרייב, בתיקייה ${esc(folder)}. `+(r&&r.webViewLink?`<a href="${esc(r.webViewLink)}" target="_blank" rel="noopener">פתח בדרייב</a>`:"");
+    }catch(e){
+      const t=(e&&(e.type||e.error))||"";
+      setStatus(statusSel, /popup_closed|access_denied|popup_failed/.test(t)?"ההתחברות ל-Google בוטלה. לחץ שוב כדי לנסות.":"השמירה בדרייב נכשלה. נסה שוב בעוד רגע.","err");
+    }finally{ btn.disabled=false; }
+  };
+}
+driveButton("#driveBtn","#s5status",()=>lastFile,"work");
+driveButton("#gDriveBtn","#gMakeStatus",()=>gLast,"gefen");
 
 /* ================= cloud (Supabase) ================= */
 const BUCKET="attendance", PROFILE_TABLE="attendance_profiles";
