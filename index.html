@@ -767,7 +767,7 @@ $("#make").onclick=async()=>{
     const fname=`כרטיס_נוכחות_${data.month.replace(/\s+/g,"_")||ym}.docx`;
     const a=$("#dl"); if(a.href) URL.revokeObjectURL(a.href); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
     lastFile=new File([blob],fname,{type:blob.type}); $("#driveBtn").hidden=!driveOn();
-    $("#share").hidden=!canSharePdf(); shareBtnLabel($("#share"),false);
+    $("#share").hidden=!driveOn(); shareBtnLabel($("#share"),false);
     const missing=S.rows.filter(r=>!rowDone(r)).length;
     let msg=`הקובץ מוכן: ${filled} ימים מולאו.`;
     if(cloud.user){ const ok=await cloudSaveReport(blob,ym,"work"); msg+= ok?" נשמר גם בענן.":" השמירה בענן נכשלה."; } if(missing) msg+=` שים לב: ב-${missing} ימים עדיין חסרה שעה.`;
@@ -840,7 +840,7 @@ $("#gMake").onclick=async()=>{
     const ym=monthOf(rows.map(r=>r.date));
     const fname=`דיווח_גפן_${(data.month||ym).replace(/\s+/g,"_")}.docx`;
     const a=$("#dl"); if(a.href) URL.revokeObjectURL(a.href); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-    gLast=new File([blob],fname,{type:blob.type}); $("#gShare").hidden=!canSharePdf(); shareBtnLabel($("#gShare"),false); $("#gDriveBtn").hidden=!driveOn();
+    gLast=new File([blob],fname,{type:blob.type}); $("#gShare").hidden=!driveOn(); shareBtnLabel($("#gShare"),false); $("#gDriveBtn").hidden=!driveOn();
     let msg=`הדוח מוכן: ${filled} שורות, סה"כ ${fmtHM(rows.reduce((s,r)=>s+gDur(r),0))} שעות.`;
     if(cloud.user){ const ok=await cloudSaveReport(blob,ym,"gefen"); msg+= ok?" נשמר גם בענן.":" השמירה בענן נכשלה."; }
     if(bad) msg+=` שים לב: ב-${bad} שורות חסרה שעה.`; if(!data.school) msg+=" שם בית הספר ריק."; if(!data.sig) msg+=" לא נוספה חתימה כי אין חתימה שמורה.";
@@ -855,7 +855,7 @@ $("#gMake").onclick=async()=>{
 // so the first tap prepares the PDF and the second tap opens the share sheet.
 const pdfCache=new WeakMap();
 function monthKeyOf(name){ const i=HEB_MONTHS.findIndex(m=>name.includes(m)); const y=(name.match(/20\d{2}/)||[""])[0]; return (y&&i>=0)?y+"-"+pad2(i+1):(y||"report"); }
-function shareBtnLabel(btn,ready){ btn.textContent = ready ? "שתף PDF עכשיו" : "שתף כ-PDF…"; btn.classList.toggle("primary",!!ready); }
+function shareBtnLabel(btn,ready){ btn.textContent = ready ? "פתח PDF בדרייב" : "PDF לשיתוף…"; btn.classList.toggle("primary",!!ready); }
 async function toPdf(file){
   const fd=new FormData();
   fd.append("metadata",new Blob([JSON.stringify({name:file.name.replace(/\.docx$/i,"")+" (זמני)",mimeType:"application/vnd.google-apps.document",
@@ -871,33 +871,25 @@ async function toPdf(file){
     fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}`,{method:"DELETE",headers:{Authorization:"Bearer "+drive.token}}).catch(()=>{});
   }
 }
-function shareButton(btnSel,statusSel,getFile){
+// The phone's browser refuses to hand files to the share sheet (NotAllowedError), so sharing goes
+// through the Drive app instead: the PDF is saved next to the Word file and opened in Drive,
+// where "Send a copy" shares the actual file.
+function shareButton(btnSel,statusSel,getFile,kind){
   const btn=$(btnSel); shareBtnLabel(btn,false);
   btn.onclick=async()=>{
     const file=getFile(); if(!file) return;
     const ready=pdfCache.get(file);
-    if(ready){ // second tap: share now, while the tap is fresh
-      try{ await navigator.share({files:[ready]}); }
-      catch(e){
-        if(e&&e.name==="AbortError") return;
-        // next tap tries again with a plain English file name, which some phones need
-        const ym=(ready.name.match(/(\d{4})/)||[])[1]||"";
-        const plain=new File([ready],(ready.name.includes("גפן")?"gefen-report":"attendance-card")+"-"+monthKeyOf(ready.name)+".pdf",{type:"application/pdf"});
-        pdfCache.set(file,plain);
-        $(statusSel).className="status err";
-        $(statusSel).innerHTML=`השיתוף נכשל (${esc((e&&e.name)||"")}${e&&e.message?": "+esc(e.message):""}). לחץ שוב על "שתף PDF עכשיו" לניסיון נוסף, או <a href="${URL.createObjectURL(ready)}" download="${esc(ready.name)}">הורד את ה-PDF</a> ושתף אותו מתיקיית ההורדות.`;
-      }
-      return;
-    }
-    if(!driveOn()) return setStatus(statusSel,"כדי לשתף כ-PDF צריך את החיבור ל-Google Drive, והוא לא נטען. רענן ונסה שוב.","err");
+    if(ready){ window.open(ready.link,"_blank","noopener"); return; }   // second tap: open it again
+    if(!driveOn()) return setStatus(statusSel,"כדי ליצור PDF צריך את החיבור ל-Google Drive, והוא לא נטען. רענן ונסה שוב.","err");
     let tokenP; try{ tokenP=driveToken(); }catch(e){ return setStatus(statusSel,"ההתחברות ל-Google לא נטענה. רענן ונסה שוב.","err"); }
     btn.disabled=true; setStatus(statusSel,"מכין PDF…");
     try{
       await tokenP;
-      let pdf; try{ pdf=await toPdf(file); }catch(e){ if(e&&e.code==="auth"){ await driveToken(); pdf=await toPdf(file); } else throw e; }
-      pdfCache.set(file,pdf); shareBtnLabel(btn,true);
+      const run=async()=>{ const pdf=await toPdf(file); const r=await driveUpload(pdf,kind); return {pdf,link:r&&r.webViewLink}; };
+      let res; try{ res=await run(); }catch(e){ if(e&&e.code==="auth"){ await driveToken(); res=await run(); } else throw e; }
+      pdfCache.set(file,res); shareBtnLabel(btn,true);
       $(statusSel).className="status ok";
-      $(statusSel).innerHTML=`ה-PDF מוכן. לחץ על "שתף PDF עכשיו", או <a href="${URL.createObjectURL(pdf)}" download="${esc(pdf.name)}">הורד אותו</a>.`;
+      $(statusSel).innerHTML=`ה-PDF נשמר בדרייב. לחץ על "פתח PDF בדרייב", ובאפליקציית Drive בחר ⋮ ואז <b>שליחת עותק</b> כדי לשלוח אותו בוואטסאפ או במייל. אפשר גם <a href="${URL.createObjectURL(res.pdf)}" download="${esc(res.pdf.name)}">להוריד את ה-PDF</a>.`;
     }catch(e){
       const t=(e&&(e.type||e.error))||"";
       setStatus(statusSel,/popup_closed|access_denied|popup_failed/.test(t)?"ההתחברות ל-Google בוטלה. לחץ שוב כדי לנסות.":"הכנת ה-PDF נכשלה. נסה שוב בעוד רגע.","err");
@@ -905,7 +897,7 @@ function shareButton(btnSel,statusSel,getFile){
   };
 }
 const canSharePdf = () => !!(navigator.canShare && navigator.canShare({files:[new File(["x"],"t.pdf",{type:"application/pdf"})]}));
-shareButton("#gShare","#gMakeStatus",()=>gLast);
+shareButton("#gShare","#gMakeStatus",()=>gLast,"gefen");
 
 /* mode tabs */
 function setMode(m){ document.body.dataset.mode=m; store.set("att_mode",m,true);
@@ -1149,7 +1141,7 @@ async function cloudDeleteMonth(m,ym){
   setStatus("#filesStatus",error?"המחיקה נכשלה.":"נמחק.",error?"err":"ok"); renderFiles();
 }
 
-shareButton("#share","#s5status",()=>lastFile);
+shareButton("#share","#s5status",()=>lastFile,"work");
 loadTpl(); showSig(); renderCal(); renderRows(); renderG();
 cloudInit();
 if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(()=>{});
